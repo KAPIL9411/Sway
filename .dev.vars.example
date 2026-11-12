@@ -1,0 +1,3 @@
+# Copy to .dev.vars. Never commit the real file.
+SUPABASE_ANON_KEY=your_supabase_anon_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
