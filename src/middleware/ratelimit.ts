@@ -21,9 +21,29 @@ function getRateLimitKey(userId: string | undefined, ip: string | undefined, pre
   return `${prefix}:${userId || ip || 'anonymous'}`;
 }
 
+/**
+ * Lazy cleanup - removes expired entries when map gets large
+ * This avoids using setInterval in global scope which is not allowed in Workers
+ */
+function cleanupExpiredEntries() {
+  const now = Date.now();
+  const maxSize = 1000; // Cleanup when map exceeds this size
+  
+  if (requestCounts.size > maxSize) {
+    for (const [key, entry] of requestCounts.entries()) {
+      if (entry.resetAt < now) {
+        requestCounts.delete(key);
+      }
+    }
+  }
+}
+
 function checkRateLimit(key: string, config: RateLimitConfig): { allowed: boolean; resetAt: number; remaining: number } {
   const now = Date.now();
   const entry = requestCounts.get(key);
+
+  // Lazy cleanup on each check
+  cleanupExpiredEntries();
 
   // No entry or window expired - allow and create new entry
   if (!entry || entry.resetAt < now) {
@@ -42,16 +62,6 @@ function checkRateLimit(key: string, config: RateLimitConfig): { allowed: boolea
   requestCounts.set(key, entry);
   return { allowed: true, resetAt: entry.resetAt, remaining: config.maxRequests - entry.count };
 }
-
-// Clean up old entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of requestCounts.entries()) {
-    if (entry.resetAt < now) {
-      requestCounts.delete(key);
-    }
-  }
-}, 60000); // Clean every minute
 
 /**
  * Create a rate limiting middleware with custom configuration
