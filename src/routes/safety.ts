@@ -67,4 +67,51 @@ route.post('/blocks', async c => {
   }
 });
 
+route.get('/blocks', async c => {
+  try {
+    const userId = c.get('user').id;
+    
+    const response = await supabaseFetch(
+      c,
+      `blocks?blocker_id=eq.${userId}&select=blocked_user_id,created_at,profiles!blocks_blocked_user_id_fkey(id,username)`
+    );
+    
+    const rows = await readJson<unknown[]>(response);
+    return c.json({ blocks: rows });
+  } catch (err) {
+    if (err instanceof SupabaseError) {
+      return c.json({ error: err.message }, err.status as any);
+    }
+    throw err;
+  }
+});
+
+route.delete('/blocks/:blockedUserId', async c => {
+  try {
+    const blockedUserId = c.req.param('blockedUserId');
+    const userId = c.get('user').id;
+
+    const response = await supabaseFetch(
+      c,
+      `blocks?blocker_id=eq.${userId}&blocked_user_id=eq.${blockedUserId}`,
+      {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' }
+      }
+    );
+    
+    const rows = await readJson<Block[]>(response);
+    if (!rows.length) {
+      return c.json({ error: 'Block not found' }, 404);
+    }
+    
+    return c.json({ message: 'User unblocked successfully', block: rows[0] });
+  } catch (err) {
+    if (err instanceof SupabaseError) {
+      return c.json({ error: err.message }, err.status as any);
+    }
+    throw err;
+  }
+});
+
 export default route;

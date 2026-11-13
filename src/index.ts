@@ -10,6 +10,9 @@ import connections from './routes/connections';
 import conversations from './routes/conversations';
 import safety from './routes/safety';
 import uploads from './routes/uploads';
+import discovery from './routes/discovery';
+import notifications from './routes/notifications';
+import admin from './routes/admin';
 
 const app = new Hono<AppEnv>();
 app.get('/health', c => c.json({ status: 'ok', service: 'sway-backend' }));
@@ -43,6 +46,9 @@ app.route('/api/connections', connections);
 app.route('/api/conversations', conversations);
 app.route('/api', safety);
 app.route('/api/uploads', uploads);
+app.route('/api/discovery', discovery);
+app.route('/api/notifications', notifications);
+app.route('/api/admin', admin);
 
 app.notFound(c => c.json({ error: 'Not found' }, 404));
 

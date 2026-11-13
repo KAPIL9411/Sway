@@ -11,7 +11,14 @@ export type Bindings = {
 };
 
 export type AuthUser = { id: string; aud?: string; role?: string };
-export type AppEnv = { Bindings: Bindings; Variables: { user: AuthUser } };
+export type AppEnv = { 
+  Bindings: Bindings; 
+  Variables: { 
+    user: AuthUser;
+    userId?: string;
+    adminRole?: string;
+  } 
+};
 
 // Domain types
 export interface Profile {

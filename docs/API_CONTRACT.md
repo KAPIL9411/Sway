@@ -204,3 +204,319 @@ Common status codes:
 - Rate limiting middleware
 - Idempotency keys for POST operations
 - Total count in pagination responses
+
+
+---
+
+## New Endpoints (Added in Latest Update)
+
+### Discovery
+
+**GET /api/discovery** - Discover users
+Query params:
+- `limit` (1-50, default 20)
+- `offset` (default 0)
+- `exclude_connected` (true/false, default false)
+
+Response:
+```json
+{
+  "users": [
+    {
+      "id": "uuid",
+      "username": "user123",
+      "created_at": "2026-11-12T10:00:00Z"
+    }
+  ],
+  "count": 10
+}
+```
+
+### Safety - Extended
+
+**GET /api/blocks** - List blocked users
+Response:
+```json
+{
+  "blocks": [
+    {
+      "blocked_user_id": "uuid",
+      "created_at": "2026-11-12T10:00:00Z",
+      "profiles": {
+        "username": "blocked_user"
+      }
+    }
+  ]
+}
+```
+
+**DELETE /api/blocks/:blockedUserId** - Unblock user
+Response:
+```json
+{
+  "success": true,
+  "message": "User unblocked successfully"
+}
+```
+
+### Connections - Extended
+
+**DELETE /api/connections/:id** - Cancel pending connection request
+(Only works for pending requests, only sender can cancel)
+Response:
+```json
+{
+  "success": true,
+  "message": "Connection request cancelled"
+}
+```
+
+### Posts - Extended
+
+**PATCH /api/posts/:id** - Edit post
+Request:
+```json
+{
+  "content": "Updated post content",
+  "tag": "general"
+}
+```
+Response:
+```json
+{
+  "post": {
+    "id": "uuid",
+    "content": "Updated post content",
+    "tag": "general",
+    "updated_at": "2026-11-12T10:05:00Z"
+  }
+}
+```
+
+**DELETE /api/posts/:id** - Delete post
+Response:
+```json
+{
+  "success": true,
+  "message": "Post deleted successfully"
+}
+```
+
+### Notifications
+
+**GET /api/notifications** - Get user notifications
+Query params:
+- `limit` (1-50, default 20)
+- `offset` (default 0)
+- `unread_only` (true/false, default false)
+
+Response:
+```json
+{
+  "notifications": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "type": "connection_request",
+      "title": "New connection request",
+      "body": "Someone wants to connect with you",
+      "data": { "connection_id": "uuid" },
+      "read": false,
+      "created_at": "2026-11-12T10:00:00Z"
+    }
+  ],
+  "count": 5,
+  "unread_count": 2
+}
+```
+
+**PATCH /api/notifications/:id/read** - Mark notification as read
+Response:
+```json
+{
+  "success": true,
+  "message": "Notification marked as read"
+}
+```
+
+**POST /api/notifications/read-all** - Mark all notifications as read
+Response:
+```json
+{
+  "success": true,
+  "count": 5,
+  "message": "All notifications marked as read"
+}
+```
+
+### Admin Endpoints
+
+All admin endpoints require the user to have an admin role in the `admin_roles` table.
+Some endpoints require specific role levels (moderator < admin < superadmin).
+
+**GET /api/admin/moderation** - Get moderation queue
+Query params:
+- `status` (pending/approved/removed/dismissed, default pending)
+- `limit` (1-100, default 50)
+- `offset` (default 0)
+
+Response:
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "content_type": "post",
+      "content_id": "uuid",
+      "reporter_id": "uuid",
+      "reported_user_id": "uuid",
+      "reason": "spam",
+      "details": "...",
+      "status": "pending",
+      "created_at": "2026-11-12T10:00:00Z"
+    }
+  ],
+  "count": 10
+}
+```
+
+**PATCH /api/admin/moderation/:id** - Review moderation item
+Request:
+```json
+{
+  "action": "remove",
+  "notes": "Confirmed spam violation"
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "action": "remove",
+  "message": "Content removed successfully"
+}
+```
+
+**GET /api/admin/users** - Search users
+Query params:
+- `search` (username search)
+- `limit` (1-100, default 50)
+- `offset` (default 0)
+
+Response:
+```json
+{
+  "users": [
+    {
+      "id": "uuid",
+      "username": "user123",
+      "created_at": "2026-11-12T10:00:00Z"
+    }
+  ],
+  "count": 10
+}
+```
+
+**GET /api/admin/users/:id** - Get user details
+Response:
+```json
+{
+  "profile": {
+    "id": "uuid",
+    "username": "user123",
+    "created_at": "2026-11-12T10:00:00Z"
+  },
+  "suspension": {
+    "id": "uuid",
+    "reason": "spam",
+    "expires_at": "2026-11-13T10:00:00Z"
+  },
+  "stats": {
+    "posts": 42,
+    "reports": 3
+  }
+}
+```
+
+**POST /api/admin/users/:id/suspend** - Suspend user (requires admin role)
+Request:
+```json
+{
+  "reason": "Repeated spam violations",
+  "duration_hours": 168,
+  "notes": "Third offense"
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "message": "User suspended successfully",
+  "expires_at": "2026-11-19T10:00:00Z"
+}
+```
+
+**DELETE /api/admin/users/:id/suspend** - Lift suspension (requires admin role)
+Response:
+```json
+{
+  "success": true,
+  "message": "Suspension lifted successfully"
+}
+```
+
+**GET /api/admin/roles** - List all admins (requires superadmin role)
+Response:
+```json
+{
+  "admins": [
+    {
+      "user_id": "uuid",
+      "role": "admin",
+      "granted_by": "uuid",
+      "granted_at": "2026-11-12T10:00:00Z",
+      "profiles": {
+        "username": "admin_user"
+      }
+    }
+  ]
+}
+```
+
+**POST /api/admin/roles** - Grant admin role (requires superadmin role)
+Request:
+```json
+{
+  "user_id": "uuid",
+  "role": "moderator"
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "message": "moderator role granted successfully"
+}
+```
+
+**DELETE /api/admin/roles/:userId** - Revoke admin role (requires superadmin role)
+Response:
+```json
+{
+  "success": true,
+  "message": "Admin role revoked successfully"
+}
+```
+
+---
+
+## Content Moderation
+
+Content moderation is now integrated into post and message creation. When enabled (via `MODERATION_ENABLED=true` and `OPENAI_API_KEY`), all text content is automatically checked using OpenAI's moderation API before being saved to the database.
+
+Moderation actions:
+- **allow**: Content passes all checks, saved normally
+- **block**: Content violates guidelines, request rejected with 400 error
+- **review**: Content flagged for manual review, saved but added to moderation queue
+
+Blocked categories include hate speech, self-harm, sexual content, and violence.

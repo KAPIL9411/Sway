@@ -3,6 +3,7 @@ import type { AppEnv, Post } from '../types';
 import { readJson, supabaseFetch, SupabaseError } from '../lib/supabase';
 import { createPostSchema, paginationSchema, validateCloudinaryUrl } from '../lib/validation';
 import { postCreationLimit } from '../middleware/ratelimit';
+import { moderateText, defaultModerationConfig } from '../lib/moderation';
 
 const route = new Hono<AppEnv>();
 
@@ -51,6 +52,34 @@ route.post('/', async c => {
       return c.json({ error: 'Image URL does not belong to your account' }, 403);
     }
 
+    // Content moderation
+    const moderationConfig = {
+      ...defaultModerationConfig,
+      enabled: c.env.MODERATION_ENABLED === 'true',
+      apiKey: c.env.OPENAI_API_KEY
+    };
+
+    if (validated.content) {
+      const moderationResult = await moderateText(validated.content, moderationConfig);
+      
+      if (moderationResult.action === 'block') {
+        return c.json({ 
+          error: 'Content violates community guidelines',
+          reason: moderationResult.reason 
+        }, 400);
+      }
+
+      if (moderationResult.action === 'review') {
+        // Add to moderation queue (if table exists)
+        // For now, allow but flag for review
+        console.warn('[Moderation] Content flagged for review:', {
+          userId,
+          content: validated.content.substring(0, 100),
+          categories: moderationResult.categories
+        });
+      }
+    }
+
     const response = await supabaseFetch(c, 'posts', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
@@ -64,6 +93,94 @@ route.post('/', async c => {
     
     const rows = await readJson<Post[]>(response);
     return c.json({ post: rows[0] ?? null }, 201);
+  } catch (err) {
+    if (err instanceof SupabaseError) {
+      return c.json({ error: err.message }, err.status as any);
+    }
+    throw err;
+  }
+});
+
+route.patch('/:id', async c => {
+  try {
+    const postId = c.req.param('id');
+    const body = await c.req.json();
+    const validated = createPostSchema.parse(body);
+    const userId = c.get('user').id;
+
+    // Validate Cloudinary URL if provided
+    if (validated.image_url && !validateCloudinaryUrl(validated.image_url, userId)) {
+      return c.json({ error: 'Image URL does not belong to your account' }, 403);
+    }
+
+    // Content moderation
+    const moderationConfig = {
+      ...defaultModerationConfig,
+      enabled: c.env.MODERATION_ENABLED === 'true',
+      apiKey: c.env.OPENAI_API_KEY
+    };
+
+    if (validated.content) {
+      const moderationResult = await moderateText(validated.content, moderationConfig);
+      
+      if (moderationResult.action === 'block') {
+        return c.json({ 
+          error: 'Content violates community guidelines',
+          reason: moderationResult.reason 
+        }, 400);
+      }
+    }
+
+    // Update post (RLS ensures only owner can update)
+    const response = await supabaseFetch(
+      c,
+      `posts?id=eq.${postId}&user_id=eq.${userId}`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          content: validated.content,
+          image_url: validated.image_url ?? null,
+          tag: validated.tag
+        })
+      }
+    );
+    
+    const rows = await readJson<Post[]>(response);
+    if (!rows.length) {
+      return c.json({ error: 'Post not found or you do not have permission to edit it' }, 404);
+    }
+    
+    return c.json({ post: rows[0] });
+  } catch (err) {
+    if (err instanceof SupabaseError) {
+      return c.json({ error: err.message }, err.status as any);
+    }
+    throw err;
+  }
+});
+
+route.delete('/:id', async c => {
+  try {
+    const postId = c.req.param('id');
+    const userId = c.get('user').id;
+
+    // Delete post (RLS ensures only owner can delete)
+    const response = await supabaseFetch(
+      c,
+      `posts?id=eq.${postId}&user_id=eq.${userId}`,
+      {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' }
+      }
+    );
+    
+    const rows = await readJson<Post[]>(response);
+    if (!rows.length) {
+      return c.json({ error: 'Post not found or you do not have permission to delete it' }, 404);
+    }
+    
+    return c.json({ message: 'Post deleted successfully', post: rows[0] });
   } catch (err) {
     if (err instanceof SupabaseError) {
       return c.json({ error: err.message }, err.status as any);

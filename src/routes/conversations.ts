@@ -3,6 +3,7 @@ import type { AppEnv, Message } from '../types';
 import { readJson, supabaseFetch, SupabaseError } from '../lib/supabase';
 import { createMessageSchema, messagesPaginationSchema } from '../lib/validation';
 import { messageLimit } from '../middleware/ratelimit';
+import { moderateText, defaultModerationConfig } from '../lib/moderation';
 
 const route = new Hono<AppEnv>();
 
@@ -80,7 +81,51 @@ route.post('/:id/messages', async c => {
       return c.json({ error: 'You are not a member of this conversation' }, 403);
     }
 
-    // TODO: Add block enforcement - check if other participant has blocked this user
+    // Get other conversation members to check blocks
+    const membersResponse = await supabaseFetch(
+      c,
+      `conversation_members?select=user_id&conversation_id=eq.${conversationId}&user_id=neq.${userId}`
+    );
+    const otherMembers = await readJson<Array<{ user_id: string }>>(membersResponse);
+
+    // Check if there's a mutual block with any member
+    if (otherMembers.length > 0) {
+      const otherUserIds = otherMembers.map(m => m.user_id).join(',');
+      const blockCheck = await supabaseFetch(
+        c,
+        `blocks?or=(and(blocker_id.eq.${userId},blocked_user_id.in.(${otherUserIds})),and(blocker_id.in.(${otherUserIds}),blocked_user_id.eq.${userId}))&select=blocker_id`
+      );
+      const blocks = await readJson<Array<{ blocker_id: string }>>(blockCheck);
+      
+      if (blocks.length > 0) {
+        return c.json({ error: 'Cannot send message due to block' }, 403);
+      }
+    }
+
+    // Content moderation
+    const moderationConfig = {
+      ...defaultModerationConfig,
+      enabled: c.env.MODERATION_ENABLED === 'true',
+      apiKey: c.env.OPENAI_API_KEY
+    };
+
+    const moderationResult = await moderateText(validated.body, moderationConfig);
+    
+    if (moderationResult.action === 'block') {
+      return c.json({ 
+        error: 'Message violates community guidelines',
+        reason: moderationResult.reason 
+      }, 400);
+    }
+
+    if (moderationResult.action === 'review') {
+      console.warn('[Moderation] Message flagged for review:', {
+        userId,
+        conversationId,
+        message: validated.body.substring(0, 50),
+        categories: moderationResult.categories
+      });
+    }
     
     const response = await supabaseFetch(c, 'messages', {
       method: 'POST',

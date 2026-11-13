@@ -102,4 +102,35 @@ route.patch('/:id', async c => {
   }
 });
 
+route.delete('/:id', async c => {
+  try {
+    const connectionId = c.req.param('id');
+    const userId = c.get('user').id;
+
+    // Only sender can cancel pending request
+    const response = await supabaseFetch(
+      c,
+      `connections?id=eq.${connectionId}&sender_id=eq.${userId}&status=eq.pending`,
+      {
+        method: 'DELETE',
+        headers: { Prefer: 'return=representation' }
+      }
+    );
+    
+    const rows = await readJson<Connection[]>(response);
+    if (!rows.length) {
+      return c.json({
+        error: 'Connection request not found or cannot be cancelled'
+      }, 404);
+    }
+    
+    return c.json({ message: 'Connection request cancelled', connection: rows[0] });
+  } catch (err) {
+    if (err instanceof SupabaseError) {
+      return c.json({ error: err.message }, err.status as any);
+    }
+    throw err;
+  }
+});
+
 export default route;
